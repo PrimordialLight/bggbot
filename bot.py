@@ -29,56 +29,6 @@ async def ping(ctx):
 
 
 @bot.command()
-async def who_owns(ctx, *, game):
-    game = normalize(game, True)
-    collections_to_combine = []
-    for known_collection in collections_known:
-        try: 
-            collection_to_combine = await get_bgg_collection(known_collection)
-            collections_to_combine.append(collection_to_combine)
-        except BggCollectionTimeoutError as e: 
-            await ctx.send(f"{str(e)}; creating partial combined collection")
-        except BggCollectionError as e: 
-            await ctx.send(f"{str(e)}; creating partial combined collection")
-
-    total_collection = await combine_bgg_collections(collections_to_combine)
-    found_games = [collection_game for collection_game in total_collection['games'] if game in collection_game['name']]
-
-    if len(found_games) > 0:
-        found_game = found_games[0]
-        game_details = await get_game_details(found_game['objectid'])
-        best_player_count = "/".join([recommendation['numplayers'] for recommendation in game_details['rec_num_players'] if recommendation['recommendation'] == "Best"])
-        if game_details['min_players'] == game_details['max_players']:
-            player_count = game_details['min_players']
-        else: 
-            player_count= f"{game_details['min_players']} - {game_details['max_players']}"
-
-        owner_count = len(found_game['owned_by'])
-        owners = f"{', '.join(found_game['owned_by'])}"
-
-        embed = Embed(
-            title=found_game['label'],
-            url=f"https://boardgamegeek.com/boardgame/{found_game['objectid']}",
-            colour=discord.Color.dark_purple(),
-        )
-        embed.set_thumbnail(url=found_game['image'])
-        embed.add_field(name="Avg Rating", value=str(round(game_details['avg_rating'], 1)), inline=True)
-        embed.add_field(name="Play Time", value=f"{game_details['min_playtime']} - {game_details['max_playtime']} Min", inline=True)
-        embed.add_field(name="Player Count", value=f"{player_count}, Best: {best_player_count}", inline=True)
-        embed.add_field(name="Game Description", value=f"*{game_details['description']}*", inline=False)
-        embed.add_field(name="Owned By",value=f"```{owners}```", inline=False)
-        if len(found_games) > 1:
-            # add bot command links for each found game, that can be clicked to send the command lookup for that game: https://stackoverflow.com/questions/73741997/clickable-command-in-text-discord
-            all_found_games = "\n".join([game['label'] for game in found_games[1:]])
-            embed.add_field(name="Other Search Matches", value=f"{all_found_games}", inline=False)
-
-        await ctx.send(embed=embed)
-    else:
-        message = f"No one currently owns '{game}' or a match couldnt be made for the name provided. "
-        await ctx.send(message)
-
-
-@bot.command()
 async def game(ctx, *, game_name):
     game_name = normalize(game_name, True)
 
@@ -205,40 +155,8 @@ async def known_collections(ctx):
     )
     await ctx.send(embed=embed)
 
-
-# @bot.command()
-# async def hot_list(ctx):
-#     top_10 = """
-#     ![Title](https://cf.geekdo-images.com/atjJKVYnNTTn1gZ2lbw8bA__thumb/img/LWKATlCPQOqfF3cJMhrnQxWRuyE=/fit-in/200x150/filters:strip_icc()/pic5631285.png)
-#     ![Title](https://cf.geekdo-images.com/atjJKVYnNTTn1gZ2lbw8bA__thumb/img/LWKATlCPQOqfF3cJMhrnQxWRuyE=/fit-in/200x150/filters:strip_icc()/pic5631285.png)
-#     ![Title](https://cf.geekdo-images.com/atjJKVYnNTTn1gZ2lbw8bA__thumb/img/LWKATlCPQOqfF3cJMhrnQxWRuyE=/fit-in/200x150/filters:strip_icc()/pic5631285.png)
-#     ![Title](https://cf.geekdo-images.com/atjJKVYnNTTn1gZ2lbw8bA__thumb/img/LWKATlCPQOqfF3cJMhrnQxWRuyE=/fit-in/200x150/filters:strip_icc()/pic5631285.png)
-#     ![Title](https://cf.geekdo-images.com/atjJKVYnNTTn1gZ2lbw8bA__thumb/img/LWKATlCPQOqfF3cJMhrnQxWRuyE=/fit-in/200x150/filters:strip_icc()/pic5631285.png)
-#     ![Title](https://cf.geekdo-images.com/atjJKVYnNTTn1gZ2lbw8bA__thumb/img/LWKATlCPQOqfF3cJMhrnQxWRuyE=/fit-in/200x150/filters:strip_icc()/pic5631285.png)
-#     """
-
-#     embed = Embed(
-#         title=f"Board Game Geek: Hot List",
-#         url=f"https://boardgamegeek.com/hotness",
-#         description=top_10, 
-#         colour=discord.Color.dark_purple(),
-#     )
-
-#     # embed.set_thumbnail(url="https://cf.geekdo-images.com/atjJKVYnNTTn1gZ2lbw8bA__original/img/-KJg0tyMdrRyR4OHx6UeDF8pKtU=/0x0/filters:format(png)/pic5631285.png")
-#     # await ctx.send(embed=embed)
-#     await ctx.send(top_10)
-
-
-@bot.command()
-async def whois(ctx, user):
-    if user == "n0ki":
-        await ctx.send(f"{user} is a baby back bitch, and thats all you need to know")
-    else:
-        await ctx.send(f"{user} seems like a good person")
-
-
 # TODO: hot list command
-# TODO: list all games command
+# TODO: list all games in combined collection command
 
 load_dotenv()
 bot.run(os.getenv('BOT_TOKEN', None))
