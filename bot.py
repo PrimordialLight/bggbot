@@ -11,6 +11,7 @@ from bgg import (
     get_bgg_collection, 
     get_game_details,
     get_game_from_collection,
+    search_bgg,
     combine_bgg_collections,
     collections_known
 )
@@ -40,78 +41,69 @@ async def game(ctx, *, game_name):
         await ctx.send(f"{str(e)}; creating partial combined collection")
 
     combined_collection = await combine_bgg_collections(collections)
-    search_results = [collection_game for collection_game in combined_collection['games'] if game_name in collection_game['name']]
+    collection_search_results = [collection_game for collection_game in combined_collection['games'] if game_name in collection_game['name']]
 
-    if len(search_results) > 0:
-        found_game = search_results[0]
+    game_in_collection = False
+    game_description = "No game was found in the collections of the known users using the provided search. The best match has been provided via BGG search."
+    game_owners = f"```No one currently owns this game```"
 
-        owners = f"{', '.join(found_game['owned_by'])}"
+    if len(collection_search_results) > 0:
+        game_in_collection = True
+        game_description = None
+        print("game in collection")
+        found_game = collection_search_results[0]
+        game_owners = f"```{', '.join(found_game['owned_by'])}```"
         game_details = await get_game_details(found_game['objectid'])
+    else:
+        print("game not in collection")
+        search_results = await search_bgg(game_name)
+        print(search_results)
 
-        embed = Embed(
-            title=f"{game_details['label']} ({game_details['yearpublished']})",
-            url=f"https://boardgamegeek.com/boardgame/{found_game['objectid']}",
-            colour=discord.Color.dark_purple(),
-        )
-
-        embed.set_thumbnail(url=found_game['image'])
-        embed.add_field(name="Avg Rating", value=game_details['rating'], inline=True)
-        embed.add_field(name="Play Time", value=game_details['play_time'], inline=True)
-        embed.add_field(name="Player Count", value=game_details['player_count_details'], inline=True)
-        embed.add_field(name="Game Description", value=f"*{game_details['description']}*", inline=False)
-        embed.add_field(name="Owned By",value=f"```{owners}```", inline=False)
-        if len(search_results) > 1:
-            # add bot command links for each found game, that can be clicked to send the command lookup for that game: https://stackoverflow.com/questions/73741997/clickable-command-in-text-discord
-            all_found_games = "\n".join([search_game['label'] for search_game in search_results[1:]])
-            embed.add_field(name="Other Search Matches in Combined Collection", value=f"{all_found_games}", inline=False)
-        await ctx.send(embed=embed)
-    else: 
-        # TODO: Move entire section except for embed logic to bgg module
-        search_url = f"https://boardgamegeek.com/xmlapi2/search?query={game_name}&type=boardgame".replace(" ", "%20")
-        resp = requests.get(search_url)
-        tree = xml.fromstring(resp.content)
-        items = tree.findall('item')
-        search_results_games = []
-        boardgame_names = []
-        boardgame_game_ids = []
-        
-        for item in items:
-            search_result = {
-                "objectid": item.attrib['id'],
-                "type": item.attrib['type'],
-                "name": normalize(item.find('name').attrib['value'])
-            }
-            
-            boardgame_names.append(search_result['name'])
-            boardgame_game_ids.append(int(search_result['objectid']))
-            search_results_games.append(search_result)
-        
-        if len(search_results_games) < 1:
+        if len(search_results) < 1:
             return await ctx.send(f"No game found using the provided search criteria: `{game_name}`")
 
-        search_results_games_list = [search_game for  search_game in search_results_games]
+        boardgame_names = [search_result['name'] for search_result in search_results] 
+        boardgame_game_ids = [int(search_result['objectid']) for search_result in search_results]
+
         boardgame_game_ids = sorted(boardgame_game_ids)
-        preferred_game_id = boardgame_game_ids[-1]
+        print(boardgame_game_ids)
+        if len(boardgame_game_ids) > 1:
+            preferred_game_id = boardgame_game_ids[int(len(boardgame_game_ids)/2)]
+        else: 
+            preferred_game_id = boardgame_game_ids[0]
+
         game_details = await get_game_details(preferred_game_id)
         num_games_to_return = 10
 
-        embed = Embed(
-            title=f"{game_details['label']} ({game_details['yearpublished']})",
-            url=f"https://boardgamegeek.com/boardgame/{game_details['objectid']}",
-            description=f"No game was found in the collections of the known users using the provided search. The newest best match has been provided via BGG search: {search_url}",
-            colour=discord.Color.dark_purple(),
-        )
-
-        embed.set_thumbnail(url=game_details['image'])
-        embed.add_field(name="Avg Rating", value=game_details['rating'], inline=True)
-        embed.add_field(name="Play Time", value=game_details['play_time'], inline=True)
-        embed.add_field(name="Player Count", value=game_details['player_count_details'], inline=True)
-        embed.add_field(name="Game Description", value=f"*{game_details['description']}*", inline=False)
-        embed.add_field(name="Owned By",value=f"```No one currently owns this game```", inline=False)
-        embed.add_field(name=f"Other Search Results ({num_games_to_return} of {len(boardgame_names)})",value="\n".join(boardgame_names[:num_games_to_return]), inline=False)
-
-        await ctx.send(embed=embed)
     
+    embed = Embed(
+        title=f"{game_details['label']} ({game_details['yearpublished']})",
+        url=f"https://boardgamegeek.com/boardgame/{game_details['objectid']}",
+        description=game_description,
+        colour=discord.Color.dark_purple(),
+    )
+
+    embed.set_thumbnail(url=game_details['image'])
+    embed.add_field(name="Avg Rating", value=game_details['averagerated'], inline=True)
+    embed.add_field(name="Play Time", value=game_details['playtime'], inline=True)
+    embed.add_field(name="Player Count", value=game_details['playercount'], inline=True)
+    embed.add_field(name="Game Description", value=f"*{game_details['descriptionshort']}*", inline=False)
+    embed.add_field(name="Owned By",value=game_owners, inline=False)
+    if game_in_collection:
+        if len(collection_search_results) > 1:
+            # add bot command links for each found game, that can be clicked to send the command lookup for that game: https://stackoverflow.com/questions/73741997/clickable-command-in-text-discord
+            all_found_games = "\n".join([search_game['label'] for search_game in collection_search_results[1:]])
+            embed.add_field(name="Other Search Matches in Combined Collection", value=f"{all_found_games}", inline=False)
+    else:
+        if len(boardgame_names) >= num_games_to_return:
+            title = f"Other Search Results ({num_games_to_return} of {len(boardgame_names)})"
+        else: 
+            title = f"Other Search Results ({len(boardgame_names)} of {len(boardgame_names)})"
+        
+        embed.add_field(name=title,value="\n".join(boardgame_names[:num_games_to_return]), inline=False)
+
+    await ctx.send(embed=embed)
+
 
 @bot.command()
 async def refresh_collection(ctx, *, username):

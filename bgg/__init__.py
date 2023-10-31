@@ -22,6 +22,35 @@ class BggCollectionTimeoutError(Exception):
 class BggCollectionError(Exception):
     pass
 
+async def search_bgg(game_name: str, type: str = "boardgame") -> list:
+    resp = requests.get(f"https://boardgamegeek.com/xmlapi2/search?query={game_name}&type=boardgame&exact=1")
+    tree = xml.fromstring(resp.content)
+    items = tree.findall('item')
+    
+    if len(items) > 1:
+        print("trimming exact results")
+        items = [items[0]]
+    elif len(items) == 0:
+        print("failed to find exact search")
+        resp = requests.get(f"https://boardgamegeek.com/xmlapi2/search?query={game_name}&type=boardgame")
+        tree = xml.fromstring(resp.content)
+        items = tree.findall('item')
+
+    search_results = []
+    boardgame_names = []
+    boardgame_game_ids = []
+    
+    for item in items:
+        search_result = {
+            "objectid": item.attrib['id'],
+            "type": item.attrib['type'],
+            "name": normalize(item.find('name').attrib['value'])
+        }
+        
+        search_results.append(search_result)
+    
+    return search_results
+
 
 async def get_game_details(game: int):
     game_id = str(game)
@@ -36,62 +65,71 @@ async def get_game_details(game: int):
             print("--[WARNING: BGG rate limit throttling causing slow requests]--")
             time.sleep(2)
             resp = requests.get(f"https://boardgamegeek.com/xmlapi2/thing?id={game_id}&stats=1")
-        
+
         game_details = {}
         tree = xml.fromstring(resp.content)
-        item = tree.findall('item')[0]
-        poll = item.findall('poll')[0]
-        poll = [poll for poll in item.findall('poll') if poll.attrib['name'] == 'suggested_numplayers'][0]
-        results = poll.findall('results')
-
-        all_numplayer_results = []
-        for result in results:
-            game_numplayer_results = {}
-            game_numplayer_results["numplayers"] = result.attrib['numplayers']
-            recommendation = None
-            recommendation_votes = 0
-            
-            for value in result.findall('result'):
-                if int(value.attrib['numvotes']) > recommendation_votes:
-                    recommendation = value.attrib['value']
-                    recommendation_votes = int(value.attrib['numvotes'])
-
-            all_numplayer_results.append(
-                {
-                    "numplayers": result.attrib['numplayers'],
-                    "recommendation": recommendation,
-                    "votes": recommendation_votes
-                }
-            )
-
-        game_description = normalize(item.find("description").text)
-        game_description = (game_description[:400] + '...[more]') if len(game_description) > 400 else game_description
-
-        game_details['label'] = normalize(item.findall('name')[0].attrib['value'])
-        game_details['objectid'] = game_id
-        game_details['yearpublished'] = item.find('yearpublished').attrib['value']
-        game_details['image'] = item.find('image').text
-        game_details['description'] = game_description
-        game_details['avg_rating'] = float(item.findall('statistics')[0].findall('ratings')[0].findall('average')[0].attrib['value'])
-        game_details['rating'] = str(round(game_details['avg_rating'], 1))
+        item = tree.find('item')
+        items = tree.findall('item')
         
-        # player count details 
-        game_details['min_players'] = int(item.findall('minplayers')[0].attrib['value'])
-        game_details['max_players'] = int(item.findall('maxplayers')[0].attrib['value'])
-        if game_details['min_players'] == game_details['max_players']:
-            game_details['player_count'] = game_details['min_players']
-        else: 
-            game_details['player_count'] = f"{game_details['min_players']} - {game_details['max_players']}"
+        # create expansions list
+        expansions = [] 
+        for expansion in item.findall('link'):
+            if expansion.attrib['type'] == 'boardgameexpansion':
+                expansions.append(
+                    {
+                        "objectid": expansion.attrib['id'],
+                        "label": normalize(expansion.attrib['value'])
+                    }
+                )
 
-        game_details['rec_num_players'] = all_numplayer_results
-        game_details['best_player_count'] = "/".join([recommendation['numplayers'] for recommendation in game_details['rec_num_players'] if recommendation['recommendation'] == "Best"])
-        game_details['player_count_details'] = f"{game_details['player_count']}, Best: {game_details['best_player_count']}"
+        # create list of the suggested player counts based on the user poll
+        suggested_numplayers = [] 
+        for poll in item.findall('poll'):
+            if poll.attrib['name'] == 'suggested_numplayers':
+                for result in poll.findall('results'):
+                    recommendation = None
+                    recommendation_votes = 0
+                    for value in result.findall('result'):
+                        if int(value.attrib['numvotes']) > recommendation_votes:
+                            recommendation = value.attrib['value']
+                            recommendation_votes = int(value.attrib['numvotes'])
+                    
+                    suggested_numplayers.append(
+                        {
+                            "numplayers": result.attrib['numplayers'],
+                            "recommendation": recommendation,
+                            "votes": recommendation_votes
+                        }
+                    )
 
-        game_details['min_playtime'] = int(item.findall('minplaytime')[0].attrib['value'])
-        game_details['max_playtime'] = int(item.findall('maxplaytime')[0].attrib['value'])
-        game_details["play_time"] = f"{game_details['min_playtime']} - {game_details['max_playtime']} Min"
-        
-        create_cache("game", game_id, game_details)
+        game_details = {
+            "objectid": item.attrib['id'],
+            "label": normalize(item.find('name').attrib['value']),
+            "name": normalize(item.find('name').attrib['value'], True),
+            "description": normalize(item.find('description').text),
+            "yearpublished": item.find('yearpublished').attrib['value'],
+            "minplayers": item.find('minplayers').attrib['value'],
+            "maxplayers": item.find('maxplayers').attrib['value'],
+            "minplaytime": item.find('minplaytime').attrib['value'],
+            "maxplaytime": item.find('maxplaytime').attrib['value'],
+            "averagerated": str(round(float(item.find('statistics').find('ratings').find('average').attrib['value']), 1)),
+            "usersrated": item.find('statistics').find('ratings').find('usersrated').attrib['value'],
+            "averageweight": item.find('statistics').find('ratings').find('averageweight').attrib['value'],
+            "suggested_numplayers": suggested_numplayers,
+            "expansions": expansions
+        }
+
+        game_details['descriptionshort'] = (game_details['description'][:400] + '...[more]') if len(game_details['description']) > 400 else game_details['description']
+        game_details['playtime'] = f"{game_details['minplaytime']} - {game_details['maxplaytime']}"
+        game_details['playercount'] = f"{game_details['minplayers']} - {game_details['maxplayers']}, Best: {'/'.join([recommendation['numplayers'] for recommendation in game_details['suggested_numplayers'] if recommendation['recommendation'] == 'Best'])}"
+
+        try: 
+            game_details['image'] = item.find('image').text
+            game_details['thumbnail'] = item.find('thumbnail').text
+        except AttributeError: 
+            game_details["image"] = "https://cf.geekdo-images.com/zxVVmggfpHJpmnJY9j-k1w__imagepagezoom/img/RO6wGyH4m4xOJWkgv6OVlf6GbrA=/fit-in/1200x900/filters:no_upscale():strip_icc()/pic1657689.jpg"
+            game_details["thumbnail"] = "https://cf.geekdo-images.com/zxVVmggfpHJpmnJY9j-k1w__imagepagezoom/img/RO6wGyH4m4xOJWkgv6OVlf6GbrA=/fit-in/1200x900/filters:no_upscale():strip_icc()/pic1657689.jpg" 
+
         return game_details
 
 
