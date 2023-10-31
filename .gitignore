@@ -1,2 +1,7 @@
 venv/
 scratch/
+.vscode/
+.env
+**/__pycache__/
+cache/collection
+cache/game

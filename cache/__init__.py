@@ -35,7 +35,12 @@ def get_cache(cache_type: str, cache_name: str, cache_age_max: int=6):
     :param str cache_name: unique name of the case
     :param int cache_age_max: the maximum acceptable age for a cache in hours
     """
+    
+
     cache_dir_path = f"cache/{cache_type}"
+    if not os.path.exists(cache_dir_path):
+        os.mkdir(cache_dir_path)
+        
     cache_filename_prefix = f"{cache_type}_{cache_name}_"
     cache_filename = None
     for file in os.listdir(cache_dir_path):

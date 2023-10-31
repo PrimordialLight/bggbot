@@ -1,6 +1,9 @@
 import discord
 from discord.ext import commands
 from discord import Embed, Color
+from dotenv import load_dotenv
+import os
+import requests
 
 from bgg import (
     BggCollectionError, 
@@ -113,6 +116,7 @@ async def game(ctx, *, game_name):
             embed.add_field(name="Other Search Matches in Combined Collection", value=f"{all_found_games}", inline=False)
         await ctx.send(embed=embed)
     else: 
+        # TODO: Move entire section except for embed logic to bgg module
         search_url = f"https://boardgamegeek.com/xmlapi2/search?query={game_name}&type=boardgame".replace(" ", "%20")
         resp = requests.get(search_url)
         tree = xml.fromstring(resp.content)
@@ -236,5 +240,5 @@ async def whois(ctx, user):
 # TODO: hot list command
 # TODO: list all games command
 
-
-bot.run('NTcxMTA2Mzc3NTQwMzA0OTAy.G4BLeJ.yX4kMtk7VkRuRTgwfCMpw4kUUQxa9SuLUSpPVo')
+load_dotenv()
+bot.run(os.getenv('BOT_TOKEN', None))
