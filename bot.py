@@ -33,12 +33,14 @@ async def ping(ctx):
 async def game(ctx, *, game_name):
     game_name = normalize(game_name, True)
 
-    try: 
-        collections = [await get_bgg_collection(user) for user in known_users]
-    except BggCollectionTimeoutError as e: 
-        await ctx.send(f"{str(e)}; creating partial combined collection")
-    except BggCollectionError as e: 
-        await ctx.send(f"{str(e)}; creating partial combined collection")
+    collections = []
+    for user in known_users:
+        try: 
+            collections.append(await get_bgg_collection(user))
+        except BggCollectionTimeoutError as e: 
+            await ctx.send(f"{str(e)}; creating partial combined collection")
+        except BggCollectionError as e: 
+            await ctx.send(f"{str(e)}; creating partial combined collection")
 
     combined_collection = await combine_bgg_collections(collections)
     collection_search_results = [collection_game for collection_game in combined_collection['games'] if game_name in collection_game['name']]
@@ -57,25 +59,25 @@ async def game(ctx, *, game_name):
     else:
         print("game not in collection")
         search_results = await search_bgg(game_name)
-        print(search_results)
+        boardgame_names = []
 
         if len(search_results) < 1:
             return await ctx.send(f"No game found using the provided search criteria: `{game_name}`")
-
-        boardgame_names = [search_result['name'] for search_result in search_results] 
-        boardgame_game_ids = [int(search_result['objectid']) for search_result in search_results]
-
-        boardgame_game_ids = sorted(boardgame_game_ids)
-        print(boardgame_game_ids)
-        if len(boardgame_game_ids) > 1:
+        elif len(search_results) == 1:
+            preferred_game_id = search_results[0]['objectid']
+        else:
+            boardgame_game_ids = [int(search_result['objectid']) for search_result in search_results]
             preferred_game_id = boardgame_game_ids[int(len(boardgame_game_ids)/2)]
-        else: 
-            preferred_game_id = boardgame_game_ids[0]
+            
+            for search_result in search_results:
+                if int(search_result['objectid']) != preferred_game_id:
+                    boardgame_game_names.append(search_result['name'])
+
 
         game_details = await get_game_details(preferred_game_id)
         num_games_to_return = 10
 
-    
+
     embed = Embed(
         title=f"{game_details['label']} ({game_details['yearpublished']})",
         url=f"https://boardgamegeek.com/boardgame/{game_details['objectid']}",
@@ -85,22 +87,29 @@ async def game(ctx, *, game_name):
 
     embed.set_thumbnail(url=game_details['image'])
     embed.add_field(name="Avg Rating", value=game_details['averagerated'], inline=True)
-    embed.add_field(name="Play Time", value=game_details['playtime'], inline=True)
+    # embed.add_field(name="Play Time", value=game_details['playtime'], inline=True)
+    embed.add_field(name="Weight", value=f"{round(float(game_details['averageweight']), 2)} / 5", inline=True)
     embed.add_field(name="Player Count", value=game_details['playercount'], inline=True)
-    embed.add_field(name="Game Description", value=f"*{game_details['descriptionshort']}*", inline=False)
+    embed.add_field(name=f"Game Description  ({game_details['playtime']} min)", value=f"*{game_details['descriptionshort']}*", inline=False)
     embed.add_field(name="Owned By",value=game_owners, inline=False)
+    embed.set_footer(text=f"{', '.join(category['label'] for category in game_details['categories'])}")
+
+    # Set other search results field based on additional results being from the collection or via bgg search
     if game_in_collection:
         if len(collection_search_results) > 1:
             # add bot command links for each found game, that can be clicked to send the command lookup for that game: https://stackoverflow.com/questions/73741997/clickable-command-in-text-discord
             all_found_games = "\n".join([search_game['label'] for search_game in collection_search_results[1:]])
             embed.add_field(name="Other Search Matches in Combined Collection", value=f"{all_found_games}", inline=False)
     else:
-        if len(boardgame_names) >= num_games_to_return:
+        if len(boardgame_names) == 0:
+            title = f"Other Search Results ({len(boardgame_names)})"
+            embed.add_field(name=title,value="*No other games found matching search*", inline=False)
+        elif len(boardgame_names) >= num_games_to_return:
             title = f"Other Search Results ({num_games_to_return} of {len(boardgame_names)})"
-        else: 
+            embed.add_field(name=title,value="\n".join(boardgame_names[:num_games_to_return]), inline=False)
+        else:
             title = f"Other Search Results ({len(boardgame_names)} of {len(boardgame_names)})"
-        
-        embed.add_field(name=title,value="\n".join(boardgame_names[:num_games_to_return]), inline=False)
+            embed.add_field(name=title,value="\n".join(boardgame_names[:num_games_to_return]), inline=False)        
 
     await ctx.send(embed=embed)
 
@@ -142,9 +151,9 @@ async def known_collections(ctx):
 
     embed = Embed(
         title="Known Collections",
-        description=f"""Currently I know the collections of:\n{kc}""",
         colour=discord.Color.dark_purple(),
     )
+    embed.add_field(name=f"""Currently I know the board game collections of:""", value=kc)
     await ctx.send(embed=embed)
 
 # TODO: hot list command

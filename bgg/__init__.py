@@ -52,7 +52,7 @@ async def search_bgg(game_name: str, type: str = "boardgame") -> list:
     return search_results
 
 
-async def get_game_details(game: int):
+async def get_game_details(game: int) -> dict:
     game_id = str(game)
 
     cached_game = get_cache("game", game_id, cache_age_max=24)
@@ -70,17 +70,30 @@ async def get_game_details(game: int):
         tree = xml.fromstring(resp.content)
         item = tree.find('item')
         items = tree.findall('item')
-        
+
         # create expansions list
+        boardgame_categories = []
         expansions = [] 
-        for expansion in item.findall('link'):
-            if expansion.attrib['type'] == 'boardgameexpansion':
+        for link in item.findall('link'):
+            if link.attrib['type'] == 'boardgameexpansion':
                 expansions.append(
                     {
-                        "objectid": expansion.attrib['id'],
-                        "label": normalize(expansion.attrib['value'])
+                        "objectid": link.attrib['id'],
+                        "label": normalize(link.attrib['value'])
                     }
                 )
+            elif link.attrib['type'] == 'boardgamecategory':
+                boardgame_categories.append(
+                    {
+                        "categoryid": link.attrib['id'],
+                        "label": normalize(link.attrib['value'], to_lower=True)
+                    }
+                )
+        
+        if 2687 in boardgame_categories:
+            object_type = "boardgamefanexpansion"
+        else:    
+            object_type = item.attrib['type']
 
         # create list of the suggested player counts based on the user poll
         suggested_numplayers = [] 
@@ -104,6 +117,7 @@ async def get_game_details(game: int):
 
         game_details = {
             "objectid": item.attrib['id'],
+            "type": object_type,
             "label": normalize(item.find('name').attrib['value']),
             "name": normalize(item.find('name').attrib['value'], True),
             "description": normalize(item.find('description').text),
@@ -116,6 +130,7 @@ async def get_game_details(game: int):
             "usersrated": item.find('statistics').find('ratings').find('usersrated').attrib['value'],
             "averageweight": item.find('statistics').find('ratings').find('averageweight').attrib['value'],
             "suggested_numplayers": suggested_numplayers,
+            "categories": boardgame_categories,
             "expansions": expansions
         }
 
@@ -200,10 +215,10 @@ async def get_bgg_collection(username: str, owned_only: bool=True, include_statu
     return collection
 
 
-async def combine_bgg_collections(collections: list):
+async def combine_bgg_collections(collections: list) -> dict:
     """
     combines N number of boardgame collections into a single total collection
-    :param list collections: a list of collection dictionaries; collections are return by get_bgg_collection
+    :param list collections: a list of collection dictionaries; collections are returned by get_bgg_collection
     """
     source_collection = collections.pop(0)
     total_collection = source_collection
